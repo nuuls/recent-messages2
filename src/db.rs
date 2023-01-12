@@ -412,26 +412,6 @@ LIMIT $2";
         if messages.len() <= 0 {
             return Ok(());
         }
-        let mut db_conn = self.get_db_conn().await?;
-        let tx = db_conn.0.transaction().await?;
-        let num_messages = messages.len();
-        for (channel_login, time_received, message_source) in messages {
-            tx.execute("INSERT INTO message(channel_login, time_received, message_source) VALUES ($1, $2, $3)", &[&channel_login, &time_received, &message_source]).await?;
-        }
-        tx.commit().await?;
-        MESSAGES_APPENDED.inc_by(num_messages as u64);
-        MESSAGES_STORED.add(num_messages as i64);
-        Ok(())
-    }
-
-    /// Append a message to the storage.
-    pub async fn append_messages_v2(
-        &self,
-        messages: Vec<(String, DateTime<Utc>, String)>,
-    ) -> Result<(), StorageError> {
-        if messages.len() <= 0 {
-            return Ok(());
-        }
         let num_messages = messages.len();
         self.get_db_conn()
             .await?

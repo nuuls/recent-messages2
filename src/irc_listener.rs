@@ -1,7 +1,3 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{self, Arc};
-use std::time::Duration;
-
 use crate::config::Config;
 use crate::db::DataStorage;
 use chrono::Utc;
@@ -92,74 +88,44 @@ impl IrcListener {
 
         let (tx, mut rx) = mpsc::unbounded_channel();
 
-        let processed = Arc::new(AtomicUsize::new(0));
-        let inserted = Arc::new(AtomicUsize::new(0));
-
-        let inserted2 = inserted.clone();
-        let processed2 = processed.clone();
-
         let forward_worker = async move {
             while let Some(message) = incoming_messages.recv().await {
                 let tx = tx.clone();
                 if let Some(channel_login) = message.channel_login() {
                     let message_source = message.source().as_raw_irc();
                     let timer = INTERNAL_FORWARD_TIME_TAKEN.start_timer();
-                    for i in 0..10000 {
-                        tx.send((channel_login.to_owned(), Utc::now(), message_source.clone()))
-                            .ok();
-                        inserted2.fetch_add(1, Ordering::SeqCst);
-                        // tokio::time::sleep(Duration::from_millis(1000)).await;
-                    }
+                    tx.send((channel_login.to_owned(), Utc::now(), message_source.clone()))
+                        .ok();
                     timer.observe_duration();
-                    let ins = inserted2.load(Ordering::SeqCst);
-                    let proc = processed2.load(Ordering::SeqCst);
-                    if ins - proc > 100000 {
-                        tokio::time::sleep(Duration::from_millis(1000)).await;
-                    }
                 }
             }
         };
 
         let chunk_worker = async move {
+            let max_chunk_size = 10000;
             loop {
                 let mut chunk = Vec::<_>::new();
                 loop {
                     match rx.try_recv() {
                         Ok(message) => chunk.push(message),
-                        Err(err) => break,
+                        Err(_) => break,
                     }
-                    if chunk.len() >= 10000 {
+                    if chunk.len() >= max_chunk_size {
                         break;
                     }
                 }
-                if chunk.len() == 0 {
+                if chunk.len() < max_chunk_size {
                     tokio::time::sleep(config.irc.forwarder_run_every).await;
+                }
+                if chunk.len() == 0 {
                     continue;
                 }
+
                 store_chunk_chunk_size.observe(chunk.len() as f64);
 
-                let processed3 = processed.clone();
-                let inserted3 = inserted.clone();
                 tokio::spawn(async move {
                     let timer = STORE_CHUNK_TIME_TAKEN.start_timer();
-                    let start = std::time::SystemTime::now();
-                    let chunksize = chunk.len();
-                    let res = data_storage.append_messages_v2(chunk).await;
-                    // let res = data_storage.append_messages(chunk).await;
-                    processed3.fetch_add(chunksize, Ordering::SeqCst);
-                    let ins = inserted3.load(Ordering::SeqCst);
-                    let proc = processed3.load(Ordering::SeqCst);
-                    println!(
-                        "saved {} messages in {}ms. Inserted: {:?}  Processed: {:?} Backlog: {:?}",
-                        chunksize,
-                        std::time::SystemTime::now()
-                            .duration_since(start)
-                            .unwrap()
-                            .as_millis(),
-                        ins,
-                        proc,
-                        ins - proc,
-                    );
+                    let res = data_storage.append_messages(chunk).await;
                     timer.observe_duration();
 
                     if let Err(e) = res {
