@@ -94,7 +94,7 @@ impl IrcListener {
                 if let Some(channel_login) = message.channel_login() {
                     let message_source = message.source().as_raw_irc();
                     let timer = INTERNAL_FORWARD_TIME_TAKEN.start_timer();
-                    tx.send((channel_login.to_owned(), Utc::now(), message_source.clone()))
+                    tx.send((channel_login.to_owned(), Utc::now(), message_source))
                         .ok();
                     timer.observe_duration();
                 }
