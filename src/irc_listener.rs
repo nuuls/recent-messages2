@@ -1,3 +1,6 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{self, Arc};
+
 use crate::config::Config;
 use crate::db::DataStorage;
 use chrono::Utc;
@@ -91,14 +94,21 @@ impl IrcListener {
 
         let (tx, rx) = mpsc::unbounded_channel();
 
+        let processed = Arc::new(AtomicUsize::new(0));
+        let inserted = Arc::new(AtomicUsize::new(0));
+
+        let inserted2 = inserted.clone();
         let forward_worker = async move {
             while let Some(message) = incoming_messages.recv().await {
                 let tx = tx.clone();
                 if let Some(channel_login) = message.channel_login() {
                     let message_source = message.source().as_raw_irc();
                     let timer = INTERNAL_FORWARD_TIME_TAKEN.start_timer();
-                    tx.send((channel_login.to_owned(), Utc::now(), message_source))
-                        .ok();
+                    for i in 0..1000 {
+                        tx.send((channel_login.to_owned(), Utc::now(), message_source.clone()))
+                            .ok();
+                    }
+                    inserted2.fetch_add(1000, Ordering::SeqCst);
                     timer.observe_duration();
                 }
             }
@@ -128,9 +138,28 @@ impl IrcListener {
 
                 store_chunk_chunk_size.observe(chunk.len() as f64);
 
+                let processed3 = processed.clone();
+                let inserted3 = inserted.clone();
                 tokio::spawn(async move {
                     let timer = STORE_CHUNK_TIME_TAKEN.start_timer();
-                    let res = data_storage.append_messages(chunk).await;
+                    let start = std::time::SystemTime::now();
+                    let chunksize = chunk.len();
+                    let res = data_storage.append_messages_v2(chunk).await;
+                    // let res = data_storage.append_messages(chunk).await;
+                    processed3.fetch_add(chunksize, Ordering::SeqCst);
+                    let ins = inserted3.load(Ordering::SeqCst);
+                    let proc = processed3.load(Ordering::SeqCst);
+                    println!(
+                        "saved {} messages in {}ms. Inserted: {:?}  Processed: {:?} Backlog: {:?}",
+                        chunksize,
+                        std::time::SystemTime::now()
+                            .duration_since(start)
+                            .unwrap()
+                            .as_millis(),
+                        ins,
+                        proc,
+                        ins - proc,
+                    );
                     timer.observe_duration();
 
                     if let Err(e) = res {
