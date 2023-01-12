@@ -19,12 +19,12 @@
 # Rate limit for connecting new IRC connections to Twitch.
 #new_connection_every = "550ms"
 # Messages received from Twitch are forwarded to the database in chunks, separated by this fixed time interval.
-forwarder_run_every = "1000ms"
+#forwarder_run_every = "100ms"
 
 # Configure the built-in web server and API service
 [web]
 # address the web server should bind to. Supports IPv4, IPv6 and Unix sockets. Defaults to TCP, 127.0.0.1:2790
-listen_address = { type = "tcp", address = "127.0.0.1:2790" }
+#listen_address = { type = "tcp", address = "127.0.0.1:2790" }
 #listen_address = { type = "unix", path = "/var/run/recent_messages2/server.sock" }
 
 # Twitch API access credentials, register an application at https://dev.twitch.tv/
@@ -46,13 +46,13 @@ redirect_uri = "https://example.com/"
 # most options are additionally documented here: https://www.postgresql.org/docs/current/libpq-connect.html#LIBPQ-PARAMKEYWORDS
 [db]
 # Username to log into the database server as. Required
-user = "postgres"
+user = "db_username"
 
 # Optional password for login, not needed e.g. if you use unix sockets with peer authentication
-password = "postgrespw"
+#password = "a_password"
 
 # Name of the database to connect to. Required
-dbname = "postgres"
+dbname = "recent_messages2"
 
 # A list of TCP or Unix addresses to try. Required (at least 1 must be specified).
 # Specify a list of addresses to try, in the other that they should be tried.
@@ -64,7 +64,7 @@ dbname = "postgres"
 #     { path = "/var/run/postgresql" }     (uses default port 5432)
 # Unix sockets can only be specified on Unix systems. On Windows and other systems a config specifying Unix
 # sockets will fail to parse.
-host = [ { path = "/var/run/postgresql" }, { hostname = "localhost", port = 49153 } ]
+host = [ { path = "/var/run/postgresql" } ]
 
 # Control options passed to the PostgreSQL server.
 # Below is just an example, see https://www.postgresql.org/docs/current/config-setting.html#id-1.6.6.4.5
@@ -93,7 +93,7 @@ host = [ { path = "/var/run/postgresql" }, { hostname = "localhost", port = 4915
 # up this setting in case you run into issues on larger deployments,
 # and increase max_connections_count on the PostgreSQL server config (as needed) as well
 # default value is the number of CPUs on the system, multiplied by four
-# max_size = 8
+#max_size = 32
 # Timeout for creating a new database connection
 #create_timeout = "5 seconds"
 # Timeout for waiting for a connection from the pool to become available
