@@ -1,16 +1,14 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{self, Arc};
+use std::time::Duration;
 
 use crate::config::Config;
 use crate::db::DataStorage;
 use chrono::Utc;
-use futures::StreamExt;
 use lazy_static::lazy_static;
 use prometheus::{linear_buckets, register_histogram, register_int_counter, Histogram, IntCounter};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
-use tokio::time::MissedTickBehavior;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_util::sync::CancellationToken;
 use twitch_irc::login::StaticLoginCredentials;
 use twitch_irc::message::{AsRawIRC, ServerMessage};
@@ -92,50 +90,52 @@ impl IrcListener {
         )
         .unwrap();
 
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, mut rx) = mpsc::unbounded_channel();
 
         let processed = Arc::new(AtomicUsize::new(0));
         let inserted = Arc::new(AtomicUsize::new(0));
 
         let inserted2 = inserted.clone();
+        let processed2 = processed.clone();
+
         let forward_worker = async move {
             while let Some(message) = incoming_messages.recv().await {
                 let tx = tx.clone();
                 if let Some(channel_login) = message.channel_login() {
                     let message_source = message.source().as_raw_irc();
                     let timer = INTERNAL_FORWARD_TIME_TAKEN.start_timer();
-                    for i in 0..1000 {
+                    for i in 0..10000 {
                         tx.send((channel_login.to_owned(), Utc::now(), message_source.clone()))
                             .ok();
+                        inserted2.fetch_add(1, Ordering::SeqCst);
+                        // tokio::time::sleep(Duration::from_millis(1000)).await;
                     }
-                    inserted2.fetch_add(1000, Ordering::SeqCst);
                     timer.observe_duration();
+                    let ins = inserted2.load(Ordering::SeqCst);
+                    let proc = processed2.load(Ordering::SeqCst);
+                    if ins - proc > 100000 {
+                        tokio::time::sleep(Duration::from_millis(1000)).await;
+                    }
                 }
             }
         };
 
         let chunk_worker = async move {
-            let mut stream = UnboundedReceiverStream::new(rx).ready_chunks(512);
-
-            let mut interval = tokio::time::interval(config.irc.forwarder_run_every);
-            interval.set_missed_tick_behavior(MissedTickBehavior::Burst);
-
             loop {
-                interval.tick().await;
-                let timeout = tokio::time::sleep(config.irc.forwarder_run_every / 2);
-                let chunk = tokio::select! {
-                    biased;
-                    _ = timeout => {
-                        continue;
+                let mut chunk = Vec::<_>::new();
+                loop {
+                    match rx.try_recv() {
+                        Ok(message) => chunk.push(message),
+                        Err(err) => break,
                     }
-                    next = stream.next() => {
-                        match next {
-                            Some(chunk) => chunk,
-                            None => break,
-                        }
+                    if chunk.len() >= 10000 {
+                        break;
                     }
-                };
-
+                }
+                if chunk.len() == 0 {
+                    tokio::time::sleep(config.irc.forwarder_run_every).await;
+                    continue;
+                }
                 store_chunk_chunk_size.observe(chunk.len() as f64);
 
                 let processed3 = processed.clone();

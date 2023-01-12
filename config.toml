@@ -19,7 +19,7 @@
 # Rate limit for connecting new IRC connections to Twitch.
 #new_connection_every = "550ms"
 # Messages received from Twitch are forwarded to the database in chunks, separated by this fixed time interval.
-forwarder_run_every = "10ms"
+forwarder_run_every = "100ms"
 
 # Configure the built-in web server and API service
 [web]
@@ -93,7 +93,7 @@ host = [ { path = "/var/run/postgresql" }, { hostname = "localhost", port = 4915
 # up this setting in case you run into issues on larger deployments,
 # and increase max_connections_count on the PostgreSQL server config (as needed) as well
 # default value is the number of CPUs on the system, multiplied by four
-#max_size = 32
+# max_size = 8
 # Timeout for creating a new database connection
 #create_timeout = "5 seconds"
 # Timeout for waiting for a connection from the pool to become available
